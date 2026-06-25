@@ -1,0 +1,38 @@
+# Local data and private/generated assets
+databases/
+output/
+scripts/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Python packaging/build output
+.Python
+*.egg-info/
+dist/
+build/
+site/
+
+# Virtual environments and local environment files
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+
+# Editor and OS metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
