@@ -42,19 +42,37 @@ OUTPUT_DANGERZ     = os.path.join(OUT_DIR, "DANGERZ.csv")
 # Coordinate tile helpers (from RT6_RADARCONVERT.CMD — exact integer formula)
 # ---------------------------------------------------------------------------
 
+def _c_div(a: int, b: int) -> int:
+    """C-style integer division: truncates toward zero (unlike Python's // which floors)."""
+    q = abs(a) // abs(b)
+    return -q if (a < 0) != (b < 0) else q
+
+
+def _c_mod(a: int, b: int) -> int:
+    """C-style modulo: remainder takes the sign of the dividend (unlike Python's %)."""
+    return a - _c_div(a, b) * b
+
+
 def _coords_to_tiles(coord_x: int, coord_y: int):
-    """Compute SS, MS, LS, X, Y from CoordX/CoordY using RT6 tile formula."""
+    """Compute SS, MS, LS, X, Y from CoordX/CoordY using RT6 tile formula.
+
+    RT6_RADARCONVERT.CMD runs this as C `int` arithmetic on the head unit, where
+    % and / truncate toward zero. Python's % and // floor toward -infinity instead,
+    which silently produces a wrong tile (off by one grid step) for any POI whose
+    CoordX or CoordY is negative — so this must replicate C's truncating semantics
+    via _c_div/_c_mod rather than using Python's operators directly.
+    """
     x, y = coord_x, coord_y
-    X  = x % 16000
-    Y  = y % 16000
-    x //= 1000
-    y //= 1000
-    SS = (x % 16) + 16 * (y % 16)
-    x //= 16
-    y //= 16
-    MS = (x % 16) + 16 * (y % 16)
-    x //= 16
-    y //= 16
+    X  = _c_mod(x, 16000)
+    Y  = _c_mod(y, 16000)
+    x  = _c_div(x, 1000)
+    y  = _c_div(y, 1000)
+    SS = _c_mod(x, 16) + 16 * _c_mod(y, 16)
+    x  = _c_div(x, 16)
+    y  = _c_div(y, 16)
+    MS = _c_mod(x, 16) + 16 * _c_mod(y, 16)
+    x  = _c_div(x, 16)
+    y  = _c_div(y, 16)
     LS = x + 28 * y   # South America / Europe formula
     return SS, MS, LS, X, Y
 
@@ -92,7 +110,31 @@ def run_pipeline(
         converted = parser.parse_converted(converted_path)
         print(f"  {len(converted)} coordinate entries parsed")
         if len(converted) != len(source):
-            print(f"  WARNING: count mismatch (source={len(source)}, converted={len(converted)})")
+            # source[i] and converted[i] are paired purely by position — the car's
+            # MiraScript output carries no description/coordinate we can match back
+            # to the maparadar row it came from. Continuing with mismatched lengths
+            # silently pairs each entry with the wrong coordinate for every row from
+            # the divergence point on: existing radars end up written under a wrong
+            # (possibly colliding) coordinate, and any new radars past the shorter
+            # file's end are dropped outright. Both are exactly what got reported as
+            # "radars disappeared / lost their alert / new ones weren't detected" —
+            # so refuse to proceed on mismatched, un-verifiable pairing instead of
+            # guessing.
+            print(
+                f"  ERROR: count mismatch (source={len(source)}, converted={len(converted)}) "
+                f"for {label}."
+            )
+            print(
+                "    The maparadar CSV and the car-converted CSV no longer have the same "
+                "number of rows, so they can no longer be paired by position."
+            )
+            print(
+                "    Re-run MiraScript in the vehicle on the CURRENT "
+                f"{os.path.basename(maparadar_path)} to regenerate "
+                f"{os.path.basename(converted_path)}, or run with --no-car to use "
+                "Python coordinate conversion for this pipeline instead."
+            )
+            sys.exit(1)
         coord_source = "converted"
     else:
         if use_car_coords:

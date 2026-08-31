@@ -27,7 +27,14 @@ _INTERPOLATOR_Y = None
 
 
 def _load_pairs():
-    """Load all known (lon, lat) → (CoordX, CoordY) training pairs."""
+    """Load all known (lon, lat) → (CoordX, CoordY) training pairs.
+
+    Deduplicates by (lon, lat): the neighbor-based RBFInterpolator raises
+    LinAlgError('Singular matrix') whenever two training points share the exact
+    same coordinate (e.g. a radar and a danger zone reported at the same spot),
+    since their kernel-matrix rows become identical regardless of differing
+    CoordX/CoordY, if both land in the same query's local neighborhood.
+    """
     base = os.path.dirname(os.path.dirname(__file__))
 
     pair_files = [
@@ -42,6 +49,7 @@ def _load_pairs():
     ]
 
     lons, lats, cxs, cys = [], [], [], []
+    seen = set()
     for src_path, conv_path in pair_files:
         if not (os.path.exists(src_path) and os.path.exists(conv_path)):
             continue
@@ -75,6 +83,10 @@ def _load_pairs():
 
         n = min(len(src), len(conv))
         for i in range(n):
+            key = (src[i][0], src[i][1])
+            if key in seen:
+                continue
+            seen.add(key)
             lons.append(src[i][0])
             lats.append(src[i][1])
             cxs.append(conv[i][0])
